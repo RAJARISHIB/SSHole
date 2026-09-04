@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import * as credentialsApi from '../api/credentials.js';
 
-// mode: 'create' | 'edit'. `credential` (for edit) is { id, name, type, groupId }.
+// mode: 'create' | 'edit'. `credential` (for edit) is { id, name, type, username, groupId }.
 // `groups` is the list of credential groups (id/name) to pick from.
 export default function CredentialFormModal({ mode, credential, groups, onCancel, onSaved }) {
   const isEdit = mode === 'edit';
   const [name, setName] = useState(credential?.name || '');
+  const [username, setUsername] = useState(credential?.username || '');
   const [groupId, setGroupId] = useState(credential?.groupId || '');
   const [type, setType] = useState(credential?.type || 'password');
   const [replaceSecret, setReplaceSecret] = useState(!isEdit); // creating always needs a secret
@@ -28,12 +29,13 @@ export default function CredentialFormModal({ mode, credential, groups, onCancel
     setError('');
 
     if (!name.trim()) return setError('Name is required.');
+    if (!username.trim()) return setError('Username is required.');
     if (replaceSecret) {
       if (type === 'privateKey' && !privateKey.trim()) return setError('Private key is required.');
       if (type === 'password' && !password) return setError('Password is required.');
     }
 
-    const payload = { name: name.trim(), groupId: groupId || null };
+    const payload = { name: name.trim(), username: username.trim(), groupId: groupId || null };
     if (!isEdit) payload.type = type;
     if (replaceSecret) {
       payload.type = type;
@@ -67,6 +69,20 @@ export default function CredentialFormModal({ mode, credential, groups, onCancel
             onChange={(e) => setName(e.target.value)}
             autoFocus
           />
+        </div>
+
+        <div className="form-row">
+          <label htmlFor="cred-username">Username</label>
+          <input
+            id="cred-username"
+            type="text"
+            placeholder="admin"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <span className="form-hint">
+            Sessions that use this credential derive their username from here automatically — they won't ask for one.
+          </span>
         </div>
 
         <div className="form-row">

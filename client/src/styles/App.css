@@ -1084,3 +1084,17 @@
   border: 1px solid var(--border);
   border-radius: 6px;
 }
+
+/* Derived-username notice (reference credential mode) */
+.derived-username {
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.derived-username strong {
+  color: var(--text);
+}

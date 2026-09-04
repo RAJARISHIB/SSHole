@@ -9,7 +9,7 @@ export default function AuthScreen() {
     <div className="auth-screen">
       <div className="auth-screen-header">
         <span className="app-title-icon">⌨</span>
-        <h1>SSH Web Terminal</h1>
+        <h1>SSHole</h1>
       </div>
       <div className="auth-card">
         {mode === 'login' ? (

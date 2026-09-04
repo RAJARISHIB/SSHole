@@ -134,7 +134,7 @@ export default function Workspace() {
       <header className="app-header">
         <div className="app-title">
           <span className="app-title-icon">⌨</span>
-          <h1>SSH Web Terminal</h1>
+          <h1>SSHole</h1>
         </div>
         <div className="app-header-user">
           <span className="app-header-username">{user.username}</span>

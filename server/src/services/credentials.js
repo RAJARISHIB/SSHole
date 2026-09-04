@@ -16,12 +16,15 @@ function conflict(message, extra) {
 }
 
 // Never includes the encrypted secret — a credential's contents are only
-// ever decrypted in memory on the server, at connect time.
+// ever decrypted in memory on the server, at connect time. `username` is
+// plaintext, not a secret, and is returned so sessions that reference this
+// credential can display/use it without ever asking for it themselves.
 function sanitizeCredential(credential) {
   return {
     id: credential.id,
     name: credential.name,
     type: credential.type,
+    username: credential.username,
     groupId: credential.groupId ?? null,
     createdAt: credential.createdAt,
     updatedAt: credential.updatedAt,
@@ -43,6 +46,8 @@ export async function createCredential(userId, input) {
   const name = (input?.name || '').trim();
   if (!name) throw badRequest('Name is required.');
   validateType(input?.type);
+  const username = (input?.username || '').trim();
+  if (!username) throw badRequest('Username is required.');
 
   const secret = input.type === 'privateKey' ? input.privateKey : input.password;
   if (!secret) throw badRequest('A password or private key is required.');
@@ -52,6 +57,7 @@ export async function createCredential(userId, input) {
   const credential = await credentialsRepo.createCredential(userId, {
     name,
     type: input.type,
+    username,
     groupId,
     secret,
     passphrase: input.type === 'privateKey' ? input.passphrase : null,
@@ -67,6 +73,10 @@ export async function updateCredential(userId, id, input) {
   if (input.name !== undefined) {
     if (!input.name.trim()) throw badRequest('Name cannot be empty.');
     patch.name = input.name.trim();
+  }
+  if (input.username !== undefined) {
+    if (!input.username.trim()) throw badRequest('Username cannot be empty.');
+    patch.username = input.username.trim();
   }
   if (input.groupId !== undefined) {
     patch.groupId = await assertCredentialGroupOwnership(userId, input.groupId);

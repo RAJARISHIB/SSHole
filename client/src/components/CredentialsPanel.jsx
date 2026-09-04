@@ -181,7 +181,9 @@ export default function CredentialsPanel({ refreshKey, onDataChanged }) {
                     <li key={cred.id} className="saved-session-row">
                       <div className="saved-session-info">
                         <div className="saved-session-name">{cred.name}</div>
-                        <div className="saved-session-target">{TYPE_LABELS[cred.type] || cred.type}</div>
+                        <div className="saved-session-target">
+                          {cred.username} · {TYPE_LABELS[cred.type] || cred.type}
+                        </div>
                       </div>
                       <div className="saved-session-actions">
                         <button type="button" onClick={() => setFormModal({ mode: 'edit', credential: cred })}>

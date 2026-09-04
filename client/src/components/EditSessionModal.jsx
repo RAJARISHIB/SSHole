@@ -43,6 +43,7 @@ export default function EditSessionModal({ session, groups, onCancel, onSaved })
   const visibleCredentials = credentialGroupFilter
     ? credentials.filter((c) => c.groupId === credentialGroupFilter)
     : credentials;
+  const selectedCredential = credentials.find((c) => c.id === selectedCredentialId);
 
   const handleKeyFile = async (e) => {
     const file = e.target.files?.[0];
@@ -57,7 +58,9 @@ export default function EditSessionModal({ session, groups, onCancel, onSaved })
 
     if (!name.trim()) return setError('Name is required.');
     if (!host.trim()) return setError('Host is required.');
-    if (!username.trim()) return setError('Username is required.');
+    // A referenced credential supplies its own username — nothing to
+    // validate here in that mode.
+    if (credentialMode !== 'reference' && !username.trim()) return setError('Username is required.');
     const portNum = Number(port) || 22;
     if (portNum < 1 || portNum > 65535) return setError('Port must be between 1 and 65535.');
 
@@ -73,7 +76,6 @@ export default function EditSessionModal({ session, groups, onCancel, onSaved })
       name: name.trim(),
       host: host.trim(),
       port: portNum,
-      username: username.trim(),
       groupId: groupId || null,
     };
 
@@ -88,17 +90,24 @@ export default function EditSessionModal({ session, groups, onCancel, onSaved })
     if (credentialTouched) {
       patch.credentialMode = credentialMode;
       if (credentialMode === 'reference') {
+        // Username comes from the credential, not this form.
         patch.credentialId = selectedCredentialId;
       } else if (credentialMode === 'inline') {
         patch.authenticationType = authenticationType;
+        patch.username = username.trim();
         patch.password = authenticationType === 'password' ? password : undefined;
         patch.privateKey = authenticationType === 'privateKey' ? privateKey : undefined;
         patch.passphrase = authenticationType === 'privateKey' ? passphrase || undefined : undefined;
       } else {
         patch.authenticationType = authenticationType;
+        patch.username = username.trim();
       }
-    } else if (authenticationType !== session.authenticationType) {
-      patch.authenticationType = authenticationType;
+    } else if (credentialMode !== 'reference') {
+      // Not switching credential source, but possibly tweaking the
+      // session's own username/auth type directly (meaningless in
+      // 'reference' mode, where both are derived from the credential).
+      if (authenticationType !== session.authenticationType) patch.authenticationType = authenticationType;
+      if (username.trim() !== (session.username || '')) patch.username = username.trim();
     }
 
     setSubmitting(true);
@@ -131,11 +140,28 @@ export default function EditSessionModal({ session, groups, onCancel, onSaved })
             <label htmlFor="edit-port">Port</label>
             <input id="edit-port" type="number" min="1" max="65535" value={port} onChange={(e) => setPort(e.target.value)} />
           </div>
-          <div>
-            <label htmlFor="edit-username">Username</label>
-            <input id="edit-username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
-          </div>
+          {credentialMode !== 'reference' && (
+            <div>
+              <label htmlFor="edit-username">Username</label>
+              <input id="edit-username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
+            </div>
+          )}
         </div>
+
+        {credentialMode === 'reference' && (
+          <div className="form-row">
+            <label>Username</label>
+            <div className="derived-username">
+              {selectedCredential ? (
+                <>
+                  🔒 <strong>{selectedCredential.username}</strong> (from credential "{selectedCredential.name}")
+                </>
+              ) : (
+                'Choose a credential below — its username will be used automatically.'
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="form-row">
           <label htmlFor="edit-group">Session group</label>

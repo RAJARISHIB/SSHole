@@ -14,14 +14,27 @@ function badRequest(message) {
 // credential when editing) but only when the session actually references
 // one. `hasSavedKey` is a plain convenience flag (true unless the session's
 // credential source is 'none') kept for the UI's connect/prompt branching.
-function sanitizeSession(session) {
+//
+// `username` is resolved fresh here rather than trusted from the stored
+// row: for a 'reference' session it's never stored on the session at all
+// (the referenced credential is the single source of truth, exactly like
+// its password/key — never copied, always looked up), so this needs the
+// credential lookup and is therefore async.
+async function sanitizeSession(session) {
   const credentialSource = session.credentialId ? 'reference' : session.inlineCredential ? 'inline' : 'none';
+
+  let username = session.username;
+  if (credentialSource === 'reference') {
+    const credential = await credentialsRepo.getCredentialForUser(session.credentialId, session.userId);
+    username = credential ? credential.username : null;
+  }
+
   return {
     id: session.id,
     name: session.name,
     host: session.host,
     port: session.port,
-    username: session.username,
+    username,
     authenticationType: session.authenticationType,
     groupId: session.groupId ?? null,
     credentialSource,
@@ -46,14 +59,22 @@ function validateAuthType(authenticationType) {
   }
 }
 
-// Resolves the credentialMode ('none' | 'reference' | 'inline', default
-// 'none') into the { authenticationType, credentialId, inlineCredential }
-// a session row actually stores — always exactly one of credentialId /
-// inlineCredential, never both (enforced by construction: every branch
-// below sets both explicitly). `fallbackAuthType` is the session's
-// existing authenticationType, used by 'none' on update when the caller
-// isn't changing it.
-async function resolveCredentialFields(userId, input, fallbackAuthType) {
+/**
+ * Resolves the credentialMode ('none' | 'reference' | 'inline', default
+ * 'none') into the { authenticationType, credentialId, inlineCredential,
+ * username } a session row actually stores — always exactly one of
+ * credentialId / inlineCredential, never both (enforced by construction:
+ * every branch below sets both explicitly).
+ *
+ * 'reference' derives both authenticationType *and* username from the
+ * credential and stores neither on the session itself — the UI never asks
+ * for a username in this mode, and none is persisted redundantly.
+ * 'inline'/'none' still need their own username (there's no credential to
+ * derive it from); `fallback` supplies the session's existing
+ * authenticationType/username on update, when the caller isn't touching
+ * those fields directly.
+ */
+async function resolveCredentialFields(userId, input, fallback = {}) {
   const mode = input.credentialMode || 'none';
 
   if (mode === 'reference') {
@@ -61,8 +82,11 @@ async function resolveCredentialFields(userId, input, fallbackAuthType) {
     if (!credentialId) throw badRequest('credentialId is required for credentialMode "reference".');
     const credential = await credentialsRepo.getCredentialForUser(credentialId, userId);
     if (!credential) throw badRequest('Credential not found.');
-    return { authenticationType: credential.type, credentialId, inlineCredential: null };
+    return { authenticationType: credential.type, credentialId, inlineCredential: null, username: null };
   }
+
+  const username = (input.username !== undefined ? input.username : fallback.username || '').trim();
+  if (!username) throw badRequest('Username is required.');
 
   if (mode === 'inline') {
     const authenticationType = input.authenticationType;
@@ -74,27 +98,26 @@ async function resolveCredentialFields(userId, input, fallbackAuthType) {
       secret: encryptSecret(secret),
       passphrase: authenticationType === 'privateKey' && input.passphrase ? encryptSecret(input.passphrase) : null,
     };
-    return { authenticationType, credentialId: null, inlineCredential };
+    return { authenticationType, credentialId: null, inlineCredential, username };
   }
 
   // 'none': no credential stored — the user will be prompted at connect
   // time. Still need to know password-vs-key so the prompt asks for the
-  // right thing.
-  const authenticationType = input.authenticationType || fallbackAuthType;
+  // right thing, and a username since there's no credential to supply one.
+  const authenticationType = input.authenticationType || fallback.authenticationType;
   validateAuthType(authenticationType);
-  return { authenticationType, credentialId: null, inlineCredential: null };
+  return { authenticationType, credentialId: null, inlineCredential: null, username };
 }
 
 export async function listSessions(userId) {
   const sessions = await sessionsRepo.listSessionsForUser(userId);
-  return sessions.map(sanitizeSession);
+  return Promise.all(sessions.map(sanitizeSession));
 }
 
 export async function createSession(userId, input) {
-  const { name, host, username } = input || {};
+  const { name, host } = input || {};
   if (!name || !name.trim()) throw badRequest('Name is required.');
   if (!host || !host.trim()) throw badRequest('Host is required.');
-  if (!username || !username.trim()) throw badRequest('Username is required.');
   const port = validatePort(input.port ?? 22);
   const groupId = await assertGroupOwnership(userId, input.groupId);
   const credentialFields = await resolveCredentialFields(userId, input);
@@ -103,7 +126,6 @@ export async function createSession(userId, input) {
     name: name.trim(),
     host: host.trim(),
     port,
-    username: username.trim(),
     groupId,
     ...credentialFields,
   });
@@ -127,10 +149,6 @@ export async function updateSession(userId, id, input) {
   if (input.port !== undefined) {
     patch.port = validatePort(input.port);
   }
-  if (input.username !== undefined) {
-    if (!input.username.trim()) throw badRequest('Username cannot be empty.');
-    patch.username = input.username.trim();
-  }
   if (input.groupId !== undefined) {
     // null/'' explicitly moves the session out of any group ("ungrouped").
     patch.groupId = await assertGroupOwnership(userId, input.groupId);
@@ -138,13 +156,27 @@ export async function updateSession(userId, id, input) {
 
   // credentialMode is only touched when the caller explicitly asks to
   // change the credential source; otherwise the existing source (and its
-  // stored secret / reference) is left completely untouched.
+  // stored secret/reference/username) is left completely untouched.
   if (input.credentialMode !== undefined) {
-    const credentialFields = await resolveCredentialFields(userId, input, existing.authenticationType);
+    const credentialFields = await resolveCredentialFields(userId, input, {
+      authenticationType: existing.authenticationType,
+      username: existing.username,
+    });
     Object.assign(patch, credentialFields);
-  } else if (input.authenticationType !== undefined) {
-    validateAuthType(input.authenticationType);
-    patch.authenticationType = input.authenticationType;
+  } else if (existing.credentialId) {
+    // Referencing a credential: username/authenticationType are derived
+    // from it, not independently editable — the frontend never sends these
+    // in this mode, and silently ignoring rather than erroring keeps a
+    // stray field from breaking an otherwise-valid host/port/name edit.
+  } else {
+    if (input.authenticationType !== undefined) {
+      validateAuthType(input.authenticationType);
+      patch.authenticationType = input.authenticationType;
+    }
+    if (input.username !== undefined) {
+      if (!input.username.trim()) throw badRequest('Username cannot be empty.');
+      patch.username = input.username.trim();
+    }
   }
 
   const updated = await sessionsRepo.updateSession(id, userId, patch);
@@ -176,28 +208,33 @@ export async function resolveConnectionConfig(userId, savedSessionId, overrides 
   if (!session) return null;
 
   let { password, privateKey, passphrase } = overrides;
+  let username = session.username;
 
-  if (password === undefined && privateKey === undefined) {
-    if (session.credentialId) {
-      const credential = await credentialsRepo.decryptCredentialForUser(session.credentialId, userId);
-      if (credential) {
+  if (session.credentialId) {
+    const credential = await credentialsRepo.decryptCredentialForUser(session.credentialId, userId);
+    if (credential) {
+      // Always derived from the credential — independent of whether the
+      // secret itself came from an override — since a reference-mode
+      // session never has its own username to fall back to.
+      username = credential.username;
+      if (password === undefined && privateKey === undefined) {
         if (credential.type === 'password') password = credential.secret;
         else privateKey = credential.secret;
         passphrase = credential.passphrase || undefined;
       }
-    } else if (session.inlineCredential) {
-      const inline = session.inlineCredential;
-      const secret = decryptSecret(inline.secret);
-      if (inline.type === 'password') password = secret;
-      else privateKey = secret;
-      passphrase = inline.passphrase ? decryptSecret(inline.passphrase) : undefined;
     }
+  } else if (session.inlineCredential && password === undefined && privateKey === undefined) {
+    const inline = session.inlineCredential;
+    const secret = decryptSecret(inline.secret);
+    if (inline.type === 'password') password = secret;
+    else privateKey = secret;
+    passphrase = inline.passphrase ? decryptSecret(inline.passphrase) : undefined;
   }
 
   return {
     host: session.host,
     port: session.port,
-    username: session.username,
+    username,
     authMethod: session.authenticationType,
     password,
     privateKey,

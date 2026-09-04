@@ -1,4 +1,4 @@
-# SSH Web Terminal
+# SSHole
 
 A browser-based SSH client: log in, connect to remote hosts from a web page,
 and get a real interactive terminal (xterm.js) backed by a live SSH session,
@@ -89,9 +89,19 @@ below) rather than stored in plaintext.
   and **inline** at once" (a NAND), with `none` preserved as a legitimate
   third state.)
 - Standalone credentials (`server/data/credentials.json`) are name + type
-  (password/private key) + group + the encrypted secret — no `sessionId`;
-  they don't belong to any one session. They have their own groups
-  (`server/data/credential-groups.json`), same ungroup-on-delete behavior.
+  (password/private key) + **username** (plaintext — not a secret) + group +
+  the encrypted secret — no `sessionId`; they don't belong to any one
+  session. They have their own groups (`server/data/credential-groups.json`),
+  same ungroup-on-delete behavior.
+- A session in **`reference`** mode never stores its own `username` — it's
+  derived from the credential, at both display and connect time, exactly
+  like the password/key (see the credential-reuse point above: rename the
+  credential's username and every referencing session picks it up on its
+  next connect, with nothing to keep in sync). The connection form and edit
+  form both hide the Username field whenever "Use a saved credential" is
+  selected, showing which username will be used instead. Sessions in
+  `inline`/`none` mode are unaffected — they still store and ask for their
+  own username, since there's no credential to derive one from.
 - Whichever storage mode is used, the secret is AES-256-GCM-encrypted with a
   key derived from the `ENCRYPTION_KEY` environment variable (see
   Configuration) — never written to any JSON file or committed to Git — and
@@ -244,9 +254,11 @@ In production, everything is served from a single origin/port (the value of
    group only ungroups its sessions. Type in **Search sessions…** to filter
    by group name, session name, host, or username as you type.
 9. In the **Credentials** sidebar tab: create/edit/delete standalone,
-   reusable credentials, organized into their own groups exactly like
-   sessions. Editing a credential updates every session that references it,
-   the next time each one connects — nothing is ever copied around.
+   reusable credentials (name, username, type, password/key), organized
+   into their own groups exactly like sessions. Editing a credential —
+   including its username — updates every session that references it, the
+   next time each one connects; nothing is ever copied around, and a
+   session using "Use a saved credential" never asks for a username at all.
    Deleting one that's still referenced is blocked; the error names which
    sessions use it, so you can reassign or delete those first. Search here
    matches credential name, credential group name, or type.

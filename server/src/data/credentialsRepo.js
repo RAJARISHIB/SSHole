@@ -21,7 +21,7 @@ export async function getCredentialForUser(id, userId) {
   return credential;
 }
 
-export async function createCredential(userId, { name, type, groupId, secret, passphrase }) {
+export async function createCredential(userId, { name, type, groupId, username, secret, passphrase }) {
   return store.update((credentials) => {
     const now = new Date().toISOString();
     const credential = {
@@ -30,6 +30,10 @@ export async function createCredential(userId, { name, type, groupId, secret, pa
       groupId: groupId ?? null,
       name,
       type, // 'password' | 'privateKey'
+      // Plaintext by design (not a secret) — this is what lets a session
+      // referencing this credential skip asking for a username entirely,
+      // deriving it straight from here instead.
+      username,
       secret: encryptSecret(secret),
       passphrase: passphrase ? encryptSecret(passphrase) : null,
       createdAt: now,
@@ -40,8 +44,9 @@ export async function createCredential(userId, { name, type, groupId, secret, pa
   });
 }
 
-// `patch` may include name/groupId, and optionally a new type/secret/passphrase
-// to replace the stored secret. Only the fields provided are changed.
+// `patch` may include name/groupId/username, and optionally a new
+// type/secret/passphrase to replace the stored secret. Only the fields
+// provided are changed.
 export async function updateCredential(id, userId, patch) {
   return store.update((credentials) => {
     const credential = credentials.find((c) => c.id === id);
@@ -49,6 +54,7 @@ export async function updateCredential(id, userId, patch) {
 
     if (patch.name !== undefined) credential.name = patch.name;
     if (patch.groupId !== undefined) credential.groupId = patch.groupId;
+    if (patch.username !== undefined) credential.username = patch.username;
     if (patch.secret !== undefined) {
       credential.type = patch.type;
       credential.secret = encryptSecret(patch.secret);
@@ -93,6 +99,7 @@ export async function decryptCredentialForUser(id, userId) {
   if (!credential) return null;
   return {
     type: credential.type,
+    username: credential.username,
     secret: decryptSecret(credential.secret),
     passphrase: credential.passphrase ? decryptSecret(credential.passphrase) : null,
   };

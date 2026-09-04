@@ -59,12 +59,16 @@ export default function ConnectionForm({ onConnect, onSessionSaved }) {
     ? credentials.filter((c) => c.groupId === form.credentialGroupFilter)
     : credentials;
 
+  const selectedCredential = credentials.find((c) => c.id === form.credentialId);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
     if (!form.host.trim()) return setError('Host is required.');
-    if (!form.username.trim()) return setError('Username is required.');
+    // A referenced credential supplies its own username — this form never
+    // asks for one in that case, so there's nothing to validate here.
+    if (!usingReferenceForSave && !form.username.trim()) return setError('Username is required.');
 
     const port = Number(form.port) || 22;
     if (port < 1 || port > 65535) return setError('Port must be between 1 and 65535.');
@@ -96,15 +100,16 @@ export default function ConnectionForm({ onConnect, onSessionSaved }) {
           name: form.sessionName.trim(),
           host: form.host.trim(),
           port,
-          username: form.username.trim(),
           groupId: form.groupId || null,
           credentialMode: form.credentialMode,
         };
         if (form.credentialMode === 'reference') {
+          // Username comes from the credential, not this form.
           payload.credentialId = form.credentialId;
         } else {
-          // 'inline' and 'none' both need to know password-vs-key; 'inline'
-          // additionally carries the secret itself.
+          // 'inline' and 'none' both need their own username, plus knowing
+          // password-vs-key; 'inline' additionally carries the secret itself.
+          payload.username = form.username.trim();
           payload.authenticationType = form.authMethod;
           if (form.credentialMode === 'inline') {
             payload.password = form.authMethod === 'password' ? form.password : undefined;
@@ -163,11 +168,28 @@ export default function ConnectionForm({ onConnect, onSessionSaved }) {
             <label htmlFor="port">Port</label>
             <input id="port" type="number" min="1" max="65535" value={form.port} onChange={update('port')} />
           </div>
-          <div>
-            <label htmlFor="username">Username</label>
-            <input id="username" type="text" placeholder="root" value={form.username} onChange={update('username')} />
-          </div>
+          {!usingReferenceForSave && (
+            <div>
+              <label htmlFor="username">Username</label>
+              <input id="username" type="text" placeholder="root" value={form.username} onChange={update('username')} />
+            </div>
+          )}
         </div>
+
+        {usingReferenceForSave && (
+          <div className="form-row">
+            <label>Username</label>
+            <div className="derived-username">
+              {selectedCredential ? (
+                <>
+                  🔒 <strong>{selectedCredential.username}</strong> (from credential "{selectedCredential.name}")
+                </>
+              ) : (
+                'Choose a credential below — its username will be used automatically.'
+              )}
+            </div>
+          </div>
+        )}
 
         {!usingReferenceForSave && (
           <>

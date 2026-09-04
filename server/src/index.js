@@ -102,6 +102,6 @@ wss.on('connection', (ws, userId) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`SSH Web Terminal server listening on http://localhost:${PORT}`);
+  console.log(`SSHole server listening on http://localhost:${PORT}`);
   console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
 });
