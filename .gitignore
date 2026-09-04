@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+
+# User accounts, saved SSH sessions, and encrypted credentials — never commit.
+server/data/
