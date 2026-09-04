@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Browser-based SSH terminal with multi-session tabs (React + xterm.js frontend, Node/ssh2 backend).",
   "scripts": {
-    "install:all": "npm install --prefix server && npm install --prefix client",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "dev": "concurrently -k -n server,client -c blue,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm run build --prefix client",
     "start": "npm run build --prefix client && npm start --prefix server"
